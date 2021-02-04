@@ -22,7 +22,7 @@ func TestUpdaterFetchMustReturnNonNilReaderCloser(t *testing.T) {
 	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", plat)).Return(nil, nil).Times(1)
 
 	updater := createUpdater(mr)
-	err := updater.BackgroundRun()
+	_, err := updater.BackgroundRun()
 
 	if err != nil {
 		equals(t, "Fetch was expected to return non-nil ReadCloser", err.Error())
@@ -43,7 +43,7 @@ func TestUpdaterWithEmptyPayloadNoErrorNoUpdate(t *testing.T) {
 	updater.CheckTime = 24
 	updater.RandomizeTime = 24
 
-	err := updater.BackgroundRun()
+	_, err := updater.BackgroundRun()
 	if err != nil {
 		t.Errorf("Error occurred: %#v", err)
 	}
@@ -66,7 +66,7 @@ func TestUpdaterWithNewVersionAndMissingBinaryReturnsError(t *testing.T) {
 	updater := createUpdater(mr)
 	updater.ForceCheck = true
 
-	err = updater.BackgroundRun()
+	_, err = updater.BackgroundRun()
 	if err != nil {
 		equals(t, "Bad status code on binary: 404", err.Error())
 	} else {
@@ -125,7 +125,7 @@ func TestUpdaterWithEmptyPayloadNoErrorNoUpdateEscapedPath(t *testing.T) {
 	updater := createUpdaterWithEscapedCharacters(mr)
 	updater.ForceCheck = true
 
-	err := updater.BackgroundRun()
+	_, err := updater.BackgroundRun()
 	if err != nil {
 		t.Errorf("Error occurred: %#v", err)
 	}

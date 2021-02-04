@@ -86,7 +86,6 @@ type Updater struct {
 	CheckTime      int       // Time in hours before next check
 	RandomizeTime  int       // Time in hours to randomize with CheckTime
 	Requester      Requester //Optional parameter to override existing http request handler
-	Info           Info
 }
 
 func (u *Updater) getExecRelativeDir(dir string) string {
@@ -96,15 +95,16 @@ func (u *Updater) getExecRelativeDir(dir string) string {
 }
 
 // BackgroundRun starts the update check and apply cycle.
-func (u *Updater) BackgroundRun() error {
+// A new applied version is returned.
+func (u *Updater) BackgroundRun() (Info, error) {
 	if err := os.MkdirAll(u.getExecRelativeDir(u.Dir), 0777); err != nil {
 		// fail
-		return err
+		return Info{}, err
 	}
 	if u.WantUpdate() {
 		if err := up.CanUpdate(); err != nil {
 			// fail
-			return err
+			return Info{}, err
 		}
 
 		u.SetUpdateTime()
@@ -115,11 +115,9 @@ func (u *Updater) BackgroundRun() error {
 		//return
 		//}
 		// TODO(bgentry): logger isn't on Windows. Replace w/ proper error reports.
-		if err := u.Update(); err != nil {
-			return err
-		}
+		return u.Update()
 	}
-	return nil
+	return Info{}, nil
 }
 
 // WantUpdate returns boolean designating if an update is desired
@@ -167,40 +165,41 @@ func (u *Updater) UpdateAvailable() (string, error) {
 	}
 	defer old.Close()
 
-	err = u.fetchInfo()
+	info, err := u.fetchInfo()
 	if err != nil {
 		return "", err
 	}
-	if u.Info.Version == u.CurrentVersion {
+	if info.Version == u.CurrentVersion {
 		return "", nil
 	} else {
-		return u.Info.Version, nil
+		return info.Version, nil
 	}
 }
 
 // Update initiates the self update process
-func (u *Updater) Update() error {
+func (u *Updater) Update() (Info, error) {
 	path, err := osext.Executable()
 	if err != nil {
-		return err
+		return Info{}, err
 	}
 	old, err := os.Open(path)
 	if err != nil {
-		return err
+		return Info{}, err
 	}
 	defer old.Close()
 
-	err = u.fetchInfo()
+	info, err := u.fetchInfo()
 	if err != nil {
-		return err
+		return Info{}, err
 	}
-	if u.Info.Version == "" {
-		return nil
+	if info.Version == "" {
+		// No Update available
+		return Info{}, nil
 	}
-	if u.Info.Version == u.CurrentVersion {
-		return nil
+	if info.Version == u.CurrentVersion {
+		return Info{}, nil
 	}
-	bin, err := u.fetchAndVerifyPatch(old)
+	bin, err := u.fetchAndVerifyPatch(info, old)
 	if err != nil {
 		if err == ErrHashMismatch {
 			log.Println("update: hash mismatch from patched binary")
@@ -210,14 +209,14 @@ func (u *Updater) Update() error {
 			}
 		}
 
-		bin, err = u.fetchAndVerifyFullBin()
+		bin, err = u.fetchAndVerifyFullBin(info)
 		if err != nil {
 			if err == ErrHashMismatch {
 				log.Println("update: hash mismatch from full binary")
 			} else {
 				log.Println("update: fetching full binary,", err)
 			}
-			return err
+			return Info{}, err
 		}
 	}
 
@@ -227,43 +226,44 @@ func (u *Updater) Update() error {
 
 	err, errRecover := up.FromStream(bytes.NewBuffer(bin))
 	if errRecover != nil {
-		return fmt.Errorf("update and recovery errors: %q %q", err, errRecover)
+		return Info{}, fmt.Errorf("update and recovery errors: %q %q", err, errRecover)
 	}
 	if err != nil {
-		return err
+		return Info{}, err
 	}
-	return nil
+	return info, nil
 }
 
-func (u *Updater) fetchInfo() error {
+func (u *Updater) fetchInfo() (Info, error) {
 	r, err := u.fetch(u.ApiURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(plat) + ".json")
 	if err != nil {
-		return err
+		return Info{}, err
 	}
 	defer r.Close()
-	err = json.NewDecoder(r).Decode(&u.Info)
+	info := Info{}
+	err = json.NewDecoder(r).Decode(&info)
 	if err != nil {
-		return err
+		return Info{}, err
 	}
-	if u.Info.Version != "" && len(u.Info.Sha256) != sha256.Size {
-		return fmt.Errorf("bad cmd hash in info. Expected %v got %v", sha256.Size, len(u.Info.Sha256))
+	if info.Version != "" && len(info.Sha256) != sha256.Size {
+		return Info{}, fmt.Errorf("bad cmd hash in info. Expected %v got %v", sha256.Size, len(info.Sha256))
 	}
-	return nil
+	return info, nil
 }
 
-func (u *Updater) fetchAndVerifyPatch(old io.Reader) ([]byte, error) {
-	bin, err := u.fetchAndApplyPatch(old)
+func (u *Updater) fetchAndVerifyPatch(info Info, old io.Reader) ([]byte, error) {
+	bin, err := u.fetchAndApplyPatch(info, old)
 	if err != nil {
 		return nil, err
 	}
-	if !verifySha(bin, u.Info.Sha256) {
+	if !verifySha(bin, info.Sha256) {
 		return nil, ErrHashMismatch
 	}
 	return bin, nil
 }
 
-func (u *Updater) fetchAndApplyPatch(old io.Reader) ([]byte, error) {
-	r, err := u.fetch(u.DiffURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.CurrentVersion) + "/" + url.QueryEscape(u.Info.Version) + "/" + url.QueryEscape(plat))
+func (u *Updater) fetchAndApplyPatch(info Info, old io.Reader) ([]byte, error) {
+	r, err := u.fetch(u.DiffURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.CurrentVersion) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(plat))
 	if err != nil {
 		return nil, err
 	}
@@ -273,20 +273,20 @@ func (u *Updater) fetchAndApplyPatch(old io.Reader) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func (u *Updater) fetchAndVerifyFullBin() ([]byte, error) {
-	bin, err := u.fetchBin()
+func (u *Updater) fetchAndVerifyFullBin(info Info) ([]byte, error) {
+	bin, err := u.fetchBin(info)
 	if err != nil {
 		return nil, err
 	}
-	verified := verifySha(bin, u.Info.Sha256)
+	verified := verifySha(bin, info.Sha256)
 	if !verified {
 		return nil, ErrHashMismatch
 	}
 	return bin, nil
 }
 
-func (u *Updater) fetchBin() ([]byte, error) {
-	r, err := u.fetch(u.BinURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.Info.Version) + "/" + url.QueryEscape(plat) + ".gz")
+func (u *Updater) fetchBin(info Info) ([]byte, error) {
+	r, err := u.fetch(u.BinURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(plat) + ".gz")
 	if err != nil {
 		return nil, err
 	}

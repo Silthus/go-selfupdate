@@ -182,6 +182,10 @@ func (u *Updater) UpdateAvailable() (string, error) {
 	}
 }
 
+func (u *Updater) GetNextVersion() (Info, error) {
+	return u.fetchInfo()
+}
+
 // Update initiates the self update process
 func (u *Updater) Update() (Info, error) {
 	path := u.getTargetAbsoluteDir()

@@ -133,8 +133,8 @@ func TestUpdaterWithSigningKeyErrorOnSignatureMismatch(t *testing.T) {
 
 	fmt.Printf("Written: %v\n", goldenBeforePath)
 	os.MkdirAll(tempDir+"update", 0700)
-	CreateUpdate(Info{Version: "1.2"}, goldenBeforePath, plat, tempDir+"update")
-	CreateUpdate(Info{Version: "1.3"}, goldenBeforePath, plat, tempDir+"update")
+	CreateUpdate(Info{Version: "1.2"}, goldenBeforePath, plat, tempDir+"update", nil)
+	CreateUpdate(Info{Version: "1.3"}, goldenBeforePath, plat, tempDir+"update", nil)
 
 	// copy("testdata/sample.patch", tempDir+"update"+"/patch")
 	file := mustOpen(goldenBeforePath)

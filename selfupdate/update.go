@@ -3,6 +3,9 @@ package selfupdate
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -50,9 +53,15 @@ func GenerateSha256(path string) []byte {
 	//return base64.URLEncoding.EncodeToString(sum)
 }
 
-func CreateUpdate(version Info, path string, platform string, genDir string) {
+func CreateUpdate(version Info, path string, platform string, genDir string, pk *rsa.PrivateKey) {
 	c := Info{Version: version.Version, Sha256: GenerateSha256(path)}
-
+	if pk != nil {
+		sig, err := rsa.SignPKCS1v15(rand.Reader, pk, crypto.SHA256, c.Sha256)
+		if err != nil {
+			panic(err)
+		}
+		c.Signature = sig
+	}
 	b, err := json.MarshalIndent(c, "", "    ")
 	if err != nil {
 		fmt.Println("error:", err)

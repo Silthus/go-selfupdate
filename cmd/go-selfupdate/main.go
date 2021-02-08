@@ -1,6 +1,10 @@
 package main
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -24,8 +28,23 @@ func createBuildDir() {
 	os.MkdirAll(genDir, 0755)
 }
 
+func ParseRsaPrivateKeyFromPemStr(privPEM []byte) (*rsa.PrivateKey, error) {
+	block, _ := pem.Decode(privPEM)
+	if block == nil {
+		return nil, errors.New("failed to parse PEM block containing the key")
+	}
+
+	priv, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return priv, nil
+}
+
 func main() {
 	outputDirFlag := flag.String("o", "public", "Output directory for writing updates")
+	keyFileFlag := flag.String("k", "", "Private key to use for signing the binary")
 
 	var defaultPlatform string
 	goos := os.Getenv("GOOS")
@@ -49,6 +68,14 @@ func main() {
 	appPath := flag.Arg(0)
 	version = flag.Arg(1)
 	genDir = *outputDirFlag
+	var pk *rsa.PrivateKey
+	if keyFileFlag != nil {
+		content, err := ioutil.ReadFile(*keyFileFlag)
+		if err != nil {
+			panic(err)
+		}
+		pk, err = ParseRsaPrivateKeyFromPemStr(content)
+	}
 
 	createBuildDir()
 	version := selfupdate.Info{
@@ -65,11 +92,11 @@ func main() {
 		files, err := ioutil.ReadDir(appPath)
 		if err == nil {
 			for _, file := range files {
-				selfupdate.CreateUpdate(version, filepath.Join(appPath, file.Name()), file.Name(), genDir)
+				selfupdate.CreateUpdate(version, filepath.Join(appPath, file.Name()), file.Name(), genDir, pk)
 			}
 			os.Exit(0)
 		}
 	}
 
-	selfupdate.CreateUpdate(version, appPath, platform, genDir)
+	selfupdate.CreateUpdate(version, appPath, platform, genDir, pk)
 }

@@ -356,6 +356,9 @@ func verifySha(bin []byte, sha []byte) bool {
 }
 
 func verifySignature(pk *rsa.PublicKey, bin []byte, sig []byte) bool {
+	if pk == nil {
+		return true
+	}
 	h := sha256.New()
 	h.Write(bin)
 	if err := rsa.VerifyPKCS1v15(pk, crypto.SHA256, h.Sum(nil), sig); err != nil {

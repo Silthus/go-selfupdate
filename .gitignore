@@ -16,3 +16,5 @@ example/example-server
 example/hello-updater
 example/public/*
 example/deployment/*
+example/myapp.key
+example/myapp.pub

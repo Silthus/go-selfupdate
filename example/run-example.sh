@@ -6,6 +6,7 @@ echo  "I'm not sure why go-selfupdate doesn't put the files under the <appname> 
 echo
 
 rm -rf deployment/update deployment/hello* public/hello-updater
+rm -rf myapp.*
 
 echo "Building example-server"; echo
 go build -o example-server src/example-server/main.go
@@ -16,6 +17,10 @@ killall example-server
 
 read -n 1 -p "Press any key to start." ignored; echo
 
+echo "Generating RSA key pair"
+openssl genrsa -out myapp.key 2048
+openssl rsa -in myapp.key -pubout > myapp.pub
+
 echo "Building dev version of hello-updater"; echo
 go build -ldflags="-X main.version=dev" -o hello-updater src/hello-updater/main.go
 
@@ -24,7 +29,7 @@ mkdir -p deployment/ && cp hello-updater deployment/
 
 
 echo "Running deployment/hello-updater"
-deployment/hello-updater
+deployment/hello-updater -k myapp.pub
 read -n 1 -p "Press any key to continue." ignored; echo
 echo; echo "=========="; echo
 
@@ -33,7 +38,7 @@ for (( minor=0; minor<=2; minor++ )); do
     go build -ldflags="-X main.version=1.$minor" -o hello-updater src/hello-updater/main.go
 
     echo "Running go-update to make update available via example-server"; echo
-    go-selfupdate -o public/hello-updater/ hello-updater 1.$minor
+    ../go-selfupdate -k myapp.key -o public/hello-updater/ hello-updater 1.$minor
 
     if (( $minor == 0 )); then
         echo "Copying version 1.0 to deployment so it can self-update"; echo
@@ -42,13 +47,13 @@ for (( minor=0; minor<=2; minor++ )); do
     fi
 
     echo "Running deployment/hello-updater"
-    deployment/hello-updater
+    deployment/hello-updater -k myapp.pub
     read -n 1 -p "Press any key to continue." ignored; echo
     echo; echo "=========="; echo
 done
 
 echo "Running deployment/hello-updater-1.0 backup copy"
-deployment/hello-updater-1.0
+deployment/hello-updater-1.0 -k myapp.pub
 read -n 1 -p "Press any key to continue." ignored; echo
 echo; echo "=========="; echo
 
@@ -58,10 +63,10 @@ echo "Copying unknown version to deployment so it can self-update"; echo
 cp hello-updater deployment/
 
 echo "Running deployment/hello-updater"
-deployment/hello-updater
+deployment/hello-updater -k myapp.pub
 sleep 5
 echo; echo "Re-running deployment/hello-updater"
-deployment/hello-updater
+deployment/hello-updater -k myapp.pub
 sleep 5
 echo; echo
 

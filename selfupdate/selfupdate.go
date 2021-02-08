@@ -28,6 +28,8 @@ package selfupdate
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -55,6 +57,7 @@ const (
 const devValidTime = 7 * 24 * time.Hour
 
 var ErrHashMismatch = errors.New("new file hash mismatch after patch")
+var ErrSignatureMismatch = errors.New("new file signature mismatch after patch")
 var up = update.New()
 var defaultHTTPRequester = HTTPRequester{}
 
@@ -76,53 +79,54 @@ var defaultHTTPRequester = HTTPRequester{}
 //  	go updater.BackgroundRun()
 //  }
 type Updater struct {
-	CurrentVersion string    // Currently running version.
-	ApiURL         string    // Base URL for API requests (json files).
-	CmdName        string    // Command name is appended to the ApiURL like http://apiurl/CmdName/. This represents one binary.
-	BinURL         string    // Base URL for full binary downloads.
-	DiffURL        string    // Base URL for diff downloads.
-	Dir            string    // Directory to store selfupdate state.
-	ForceCheck     bool      // Check for update regardless of cktime timestamp
-	CheckTime      int       // Time in hours before next check
-	RandomizeTime  int       // Time in hours to randomize with CheckTime
-	Requester      Requester //Optional parameter to override existing http request handler
-	Info           struct {
-		Version string
-		Sha256  []byte
+	CurrentVersion string         // Currently running version.
+	ApiURL         string         // Base URL for API requests (json files).
+	CmdName        string         // Command name is appended to the ApiURL like http://apiurl/CmdName/. This represents one binary.
+	BinURL         string         // Base URL for full binary downloads.
+	DiffURL        string         // Base URL for diff downloads.
+	Dir            string         // Directory to store selfupdate state.
+	ForceCheck     bool           // Check for update regardless of cktime timestamp
+	CheckTime      int            // Time in hours before next check
+	RandomizeTime  int            // Time in hours to randomize with CheckTime
+	Requester      Requester      //Optional parameter to override existing http request handler
+	PublicKey      *rsa.PublicKey // Optional parameter to check signature in the update. If a key is set any binary must be checked with supplied Signature hash of API
+	Target         string         // Optional parameter to specify binary to update. Set to current executable if not specified
+}
+
+func (u *Updater) getTargetAbsoluteDir() string {
+	if u.Target == "" {
+		filename, err := osext.Executable()
+		if err != nil {
+			panic(err)
+		}
+		return filename
 	}
+	return u.Target
 }
 
 func (u *Updater) getExecRelativeDir(dir string) string {
-	filename, _ := osext.Executable()
+	filename := u.getTargetAbsoluteDir()
 	path := filepath.Join(filepath.Dir(filename), dir)
 	return path
 }
 
 // BackgroundRun starts the update check and apply cycle.
-func (u *Updater) BackgroundRun() error {
+// A new applied version is returned.
+func (u *Updater) BackgroundRun() (Info, error) {
 	if err := os.MkdirAll(u.getExecRelativeDir(u.Dir), 0777); err != nil {
 		// fail
-		return err
+		return Info{}, err
 	}
 	if u.WantUpdate() {
 		if err := up.CanUpdate(); err != nil {
 			// fail
-			return err
+			return Info{}, err
 		}
 
 		u.SetUpdateTime()
-
-		//self, err := osext.Executable()
-		//if err != nil {
-		// fail update, couldn't figure out path to self
-		//return
-		//}
-		// TODO(bgentry): logger isn't on Windows. Replace w/ proper error reports.
-		if err := u.Update(); err != nil {
-			return err
-		}
+		return u.Update()
 	}
-	return nil
+	return Info{}, nil
 }
 
 // WantUpdate returns boolean designating if an update is desired
@@ -160,64 +164,67 @@ func (u *Updater) ClearUpdateState() {
 
 // UpdateAvailable checks if update is available and returns version
 func (u *Updater) UpdateAvailable() (string, error) {
-	path, err := osext.Executable()
-	if err != nil {
-		return "", err
-	}
+	path := u.getTargetAbsoluteDir()
 	old, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer old.Close()
 
-	err = u.fetchInfo()
+	info, err := u.fetchInfo()
 	if err != nil {
 		return "", err
 	}
-	if u.Info.Version == u.CurrentVersion {
+	if info.Version == u.CurrentVersion {
 		return "", nil
 	} else {
-		return u.Info.Version, nil
+		return info.Version, nil
 	}
 }
 
 // Update initiates the self update process
-func (u *Updater) Update() error {
-	path, err := osext.Executable()
-	if err != nil {
-		return err
-	}
+func (u *Updater) Update() (Info, error) {
+	path := u.getTargetAbsoluteDir()
 	old, err := os.Open(path)
 	if err != nil {
-		return err
+		return Info{}, err
 	}
 	defer old.Close()
 
-	err = u.fetchInfo()
+	info, err := u.fetchInfo()
 	if err != nil {
-		return err
+		return Info{}, err
 	}
-	if u.Info.Version == u.CurrentVersion {
-		return nil
+	if info.Version == "" {
+		// No Update available
+		return Info{}, nil
 	}
-	bin, err := u.fetchAndVerifyPatch(old)
+	if info.Version == u.CurrentVersion {
+		return Info{}, nil
+	}
+	if u.PublicKey != nil {
+		if info.Signature == nil {
+			return Info{}, fmt.Errorf("update: configured with public key but version info had no signature")
+		}
+	}
+	bin, err := u.fetchAndVerifyPatch(info, old)
 	if err != nil {
 		if err == ErrHashMismatch {
 			log.Println("update: hash mismatch from patched binary")
 		} else {
 			if u.DiffURL != "" {
-				log.Println("update: patching binary,", err)
+				log.Println("update: error patching binary,", err)
 			}
 		}
 
-		bin, err = u.fetchAndVerifyFullBin()
+		bin, err = u.fetchAndVerifyFullBin(info)
 		if err != nil {
 			if err == ErrHashMismatch {
 				log.Println("update: hash mismatch from full binary")
 			} else {
-				log.Println("update: fetching full binary,", err)
+				log.Println("update: error fetching full binary,", err)
 			}
-			return err
+			return Info{}, err
 		}
 	}
 
@@ -227,43 +234,47 @@ func (u *Updater) Update() error {
 
 	err, errRecover := up.FromStream(bytes.NewBuffer(bin))
 	if errRecover != nil {
-		return fmt.Errorf("update and recovery errors: %q %q", err, errRecover)
+		return Info{}, fmt.Errorf("update and recovery errors: %q %q", err, errRecover)
 	}
 	if err != nil {
-		return err
+		return Info{}, err
 	}
-	return nil
+	return info, nil
 }
 
-func (u *Updater) fetchInfo() error {
+func (u *Updater) fetchInfo() (Info, error) {
 	r, err := u.fetch(u.ApiURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(plat) + ".json")
 	if err != nil {
-		return err
+		return Info{}, err
 	}
 	defer r.Close()
-	err = json.NewDecoder(r).Decode(&u.Info)
+	info := Info{}
+	err = json.NewDecoder(r).Decode(&info)
 	if err != nil {
-		return err
+		return Info{}, err
 	}
-	if len(u.Info.Sha256) != sha256.Size {
-		return errors.New("bad cmd hash in info")
+	if info.Version != "" && len(info.Sha256) != sha256.Size {
+		return Info{}, fmt.Errorf("bad cmd hash in info. Expected %v got %v", sha256.Size, len(info.Sha256))
 	}
-	return nil
+	return info, nil
 }
 
-func (u *Updater) fetchAndVerifyPatch(old io.Reader) ([]byte, error) {
-	bin, err := u.fetchAndApplyPatch(old)
+func (u *Updater) fetchAndVerifyPatch(info Info, old io.Reader) ([]byte, error) {
+	bin, err := u.fetchAndApplyPatch(info, old)
 	if err != nil {
 		return nil, err
 	}
-	if !verifySha(bin, u.Info.Sha256) {
+	if !verifySha(bin, info.Sha256) {
 		return nil, ErrHashMismatch
+	}
+	if !verifySignature(u.PublicKey, bin, info.Signature) {
+		return nil, ErrSignatureMismatch
 	}
 	return bin, nil
 }
 
-func (u *Updater) fetchAndApplyPatch(old io.Reader) ([]byte, error) {
-	r, err := u.fetch(u.DiffURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.CurrentVersion) + "/" + url.QueryEscape(u.Info.Version) + "/" + url.QueryEscape(plat))
+func (u *Updater) fetchAndApplyPatch(info Info, old io.Reader) ([]byte, error) {
+	r, err := u.fetch(u.DiffURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.CurrentVersion) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(plat))
 	if err != nil {
 		return nil, err
 	}
@@ -273,20 +284,23 @@ func (u *Updater) fetchAndApplyPatch(old io.Reader) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func (u *Updater) fetchAndVerifyFullBin() ([]byte, error) {
-	bin, err := u.fetchBin()
+func (u *Updater) fetchAndVerifyFullBin(info Info) ([]byte, error) {
+	bin, err := u.fetchBin(info)
 	if err != nil {
 		return nil, err
 	}
-	verified := verifySha(bin, u.Info.Sha256)
+	verified := verifySha(bin, info.Sha256)
 	if !verified {
 		return nil, ErrHashMismatch
+	}
+	if !verifySignature(u.PublicKey, bin, info.Signature) {
+		return nil, ErrSignatureMismatch
 	}
 	return bin, nil
 }
 
-func (u *Updater) fetchBin() ([]byte, error) {
-	r, err := u.fetch(u.BinURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.Info.Version) + "/" + url.QueryEscape(plat) + ".gz")
+func (u *Updater) fetchBin(info Info) ([]byte, error) {
+	r, err := u.fetch(u.BinURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(plat) + ".gz")
 	if err != nil {
 		return nil, err
 	}
@@ -339,6 +353,18 @@ func verifySha(bin []byte, sha []byte) bool {
 	h := sha256.New()
 	h.Write(bin)
 	return bytes.Equal(h.Sum(nil), sha)
+}
+
+func verifySignature(pk *rsa.PublicKey, bin []byte, sig []byte) bool {
+	if pk == nil {
+		return true
+	}
+	h := sha256.New()
+	h.Write(bin)
+	if err := rsa.VerifyPKCS1v15(pk, crypto.SHA256, h.Sum(nil), sig); err != nil {
+		return false
+	}
+	return true
 }
 
 func writeTime(path string, t time.Time) bool {

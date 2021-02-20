@@ -29,7 +29,7 @@ func TestUpdaterFetchMustReturnNonNilReaderCloser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mr := mocks.NewMockRequester(ctrl)
-	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", plat)).Return(nil, nil).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", defaultPlatform)).Return(nil, nil).Times(1)
 
 	updater := createUpdater(mr)
 	_, err := updater.BackgroundRun()
@@ -46,7 +46,7 @@ func TestUpdaterWithEmptyPayloadNoErrorNoUpdate(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mr := mocks.NewMockRequester(ctrl)
-	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", plat)).Return(newTestReaderCloser("{}"), nil).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", defaultPlatform)).Return(newTestReaderCloser("{}"), nil).Times(1)
 	mr.EXPECT().Fetch(gomock.Any()).Times(0)
 
 	updater := createUpdater(mr)
@@ -68,9 +68,9 @@ func TestUpdaterWithNewVersionAndMissingBinaryReturnsError(t *testing.T) {
 	c := Info{Version: "1.3", Sha256: h.Sum(nil)}
 
 	b, err := json.MarshalIndent(c, "", "    ")
-	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", plat)).Return(newTestReaderCloser(string(b)), nil).Times(1)
-	mr.EXPECT().Fetch(fmt.Sprintf("http://diff.updates.yourdomain.com/myapp/1.2/1.3/%v", plat)).Return(newTestReaderCloser("{}"), fmt.Errorf("Bad status code on diff: 404")).Times(1)
-	mr.EXPECT().Fetch(fmt.Sprintf("http://bin.updates.yourdownmain.com/myapp/1.3/%v.gz", plat)).Return(newTestReaderCloser("{}"), fmt.Errorf("Bad status code on binary: 404")).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", defaultPlatform)).Return(newTestReaderCloser(string(b)), nil).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://diff.updates.yourdomain.com/myapp/1.2/1.3/%v", defaultPlatform)).Return(newTestReaderCloser("{}"), fmt.Errorf("Bad status code on diff: 404")).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://bin.updates.yourdownmain.com/myapp/1.3/%v.gz", defaultPlatform)).Return(newTestReaderCloser("{}"), fmt.Errorf("Bad status code on binary: 404")).Times(1)
 	mr.EXPECT().Fetch(gomock.Any()).Times(0)
 
 	updater := createUpdater(mr)
@@ -89,7 +89,7 @@ func TestUpdaterCheckTime(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	mr := mocks.NewMockRequester(ctrl)
-	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", plat)).Return(newTestReaderCloser("{}"), nil).Times(4)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", defaultPlatform)).Return(newTestReaderCloser("{}"), nil).Times(4)
 	mr.EXPECT().Fetch(gomock.Any()).Times(0) // no additional calls
 
 	// Run test with various time
@@ -108,7 +108,7 @@ func TestUpdaterWithSigningKeyErrorOnNoSignature(t *testing.T) {
 	c := Info{Version: "1.3", Sha256: h.Sum(nil)}
 
 	b, err := json.MarshalIndent(c, "", "    ")
-	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", plat)).Return(newTestReaderCloser(string(b)), nil).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", defaultPlatform)).Return(newTestReaderCloser(string(b)), nil).Times(1)
 	mr.EXPECT().Fetch(gomock.Any()).Times(0)
 
 	_, updater := createUpdaterWithSigningKey("", mr)
@@ -133,8 +133,8 @@ func TestUpdaterWithSigningKeyErrorOnSignatureMismatch(t *testing.T) {
 
 	fmt.Printf("Written: %v\n", goldenBeforePath)
 	os.MkdirAll(tempDir+"update", 0700)
-	CreateUpdate(Info{Version: "1.2"}, goldenBeforePath, plat, tempDir+"update", nil)
-	CreateUpdate(Info{Version: "1.3"}, goldenBeforePath, plat, tempDir+"update", nil)
+	CreateUpdate(Info{Version: "1.2"}, goldenBeforePath, defaultPlatform, tempDir+"update", nil)
+	CreateUpdate(Info{Version: "1.3"}, goldenBeforePath, defaultPlatform, tempDir+"update", nil)
 
 	// copy("testdata/sample.patch", tempDir+"update"+"/patch")
 	file := mustOpen(goldenBeforePath)
@@ -162,9 +162,9 @@ func TestUpdaterWithSigningKeyErrorOnSignatureMismatch(t *testing.T) {
 	w.Write(bin)
 	w.Close() // You must close this first to flush the bytes to the buffer.
 
-	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", plat)).Return(newTestReaderCloser(string(b)), nil).Times(1)
-	mr.EXPECT().Fetch(fmt.Sprintf("http://diff.updates.yourdomain.com/myapp/1.2/1.3/%v", plat)).Return(newTestReaderCloser("{}"), errors.New("404")).Times(1)
-	mr.EXPECT().Fetch(fmt.Sprintf("http://bin.updates.yourdownmain.com/myapp/1.3/%v.gz", plat)).Return(ioutil.NopCloser(&buf), nil).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://api.updates.yourdomain.com/myapp/%v.json", defaultPlatform)).Return(newTestReaderCloser(string(b)), nil).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://diff.updates.yourdomain.com/myapp/1.2/1.3/%v", defaultPlatform)).Return(newTestReaderCloser("{}"), errors.New("404")).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("http://bin.updates.yourdownmain.com/myapp/1.3/%v.gz", defaultPlatform)).Return(ioutil.NopCloser(&buf), nil).Times(1)
 	mr.EXPECT().Fetch(gomock.Any()).Times(0)
 
 	_, err = updater.Update()
@@ -206,7 +206,7 @@ func TestUpdaterWithEmptyPayloadNoErrorNoUpdateEscapedPath(t *testing.T) {
 	defer ctrl.Finish()
 	mr := mocks.NewMockRequester(ctrl)
 	basePath := "http://api.updates.yourdomain.com/myapp%2Bfoo"
-	mr.EXPECT().Fetch(fmt.Sprintf("%v/%v.json", basePath, plat)).Return(newTestReaderCloser("{}"), nil).Times(1)
+	mr.EXPECT().Fetch(fmt.Sprintf("%v/%v.json", basePath, defaultPlatform)).Return(newTestReaderCloser("{}"), nil).Times(1)
 	mr.EXPECT().Fetch(gomock.Any()).Times(0) // no additional calls
 
 	updater := createUpdaterWithEscapedCharacters(mr)

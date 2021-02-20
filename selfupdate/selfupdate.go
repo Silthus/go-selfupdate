@@ -50,8 +50,8 @@ import (
 )
 
 const (
-	upcktimePath = "cktime"
-	plat         = runtime.GOOS + "-" + runtime.GOARCH
+	upcktimePath    = "cktime"
+	defaultPlatform = runtime.GOOS + "-" + runtime.GOARCH
 )
 
 const devValidTime = 7 * 24 * time.Hour
@@ -91,6 +91,14 @@ type Updater struct {
 	Requester      Requester      //Optional parameter to override existing http request handler
 	PublicKey      *rsa.PublicKey // Optional parameter to check signature in the update. If a key is set any binary must be checked with supplied Signature hash of API
 	Target         string         // Optional parameter to specify binary to update. Set to current executable if not specified
+	Platform       string         // Optional parameter to specify platform. Defaults to ${runtime.GOOS}-${runtime.GOARCH}
+}
+
+func (u *Updater) getPlatform() string {
+	if u.Platform != "" {
+		return u.Platform
+	}
+	return defaultPlatform
 }
 
 func (u *Updater) getTargetAbsoluteDir() string {
@@ -247,7 +255,7 @@ func (u *Updater) Update() (Info, error) {
 }
 
 func (u *Updater) fetchInfo() (Info, error) {
-	r, err := u.fetch(u.ApiURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(plat) + ".json")
+	r, err := u.fetch(u.ApiURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.getPlatform()) + ".json")
 	if err != nil {
 		return Info{}, err
 	}
@@ -278,7 +286,7 @@ func (u *Updater) fetchAndVerifyPatch(info Info, old io.Reader) ([]byte, error) 
 }
 
 func (u *Updater) fetchAndApplyPatch(info Info, old io.Reader) ([]byte, error) {
-	r, err := u.fetch(u.DiffURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.CurrentVersion) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(plat))
+	r, err := u.fetch(u.DiffURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(u.CurrentVersion) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(u.getPlatform()))
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +312,7 @@ func (u *Updater) fetchAndVerifyFullBin(info Info) ([]byte, error) {
 }
 
 func (u *Updater) fetchBin(info Info) ([]byte, error) {
-	r, err := u.fetch(u.BinURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(plat) + ".gz")
+	r, err := u.fetch(u.BinURL + url.QueryEscape(u.CmdName) + "/" + url.QueryEscape(info.Version) + "/" + url.QueryEscape(u.getPlatform()) + ".gz")
 	if err != nil {
 		return nil, err
 	}

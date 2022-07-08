@@ -1,6 +1,6 @@
 module github.com/silthus/go-selfupdate
 
-go 1.18
+go 1.17
 
 require (
 	github.com/golang/mock v1.4.4

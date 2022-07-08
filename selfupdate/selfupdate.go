@@ -44,7 +44,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/kardianos/osext"
 	"github.com/kr/binarydist"
 	"gopkg.in/inconshreveable/go-update.v0"
 )
@@ -53,8 +52,6 @@ const (
 	upcktimePath    = "cktime"
 	defaultPlatform = runtime.GOOS + "-" + runtime.GOARCH
 )
-
-const devValidTime = 7 * 24 * time.Hour
 
 var ErrHashMismatch = errors.New("new file hash mismatch after patch")
 var ErrSignatureMismatch = errors.New("new file signature mismatch after patch")
@@ -103,7 +100,7 @@ func (u *Updater) getPlatform() string {
 
 func (u *Updater) getTargetAbsoluteDir() string {
 	if u.Target == "" {
-		filename, err := osext.Executable()
+		filename, err := os.Executable()
 		if err != nil {
 			panic(err)
 		}
@@ -167,7 +164,7 @@ func (u *Updater) SetUpdateTime() bool {
 // ClearUpdateState writes current time to state file
 func (u *Updater) ClearUpdateState() {
 	path := u.getExecRelativeDir(u.Dir + upcktimePath)
-	os.Remove(path)
+	_ = os.Remove(path)
 }
 
 // UpdateAvailable checks if update is available and returns version
@@ -242,7 +239,7 @@ func (u *Updater) Update() (Info, error) {
 
 	// close the old binary before installing because on windows
 	// it can't be renamed if a handle to the file is still open
-	old.Close()
+	_ = old.Close()
 
 	err, errRecover := up.FromStream(bytes.NewBuffer(bin))
 	if errRecover != nil {

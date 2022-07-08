@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/segfault16/go-selfupdate/selfupdate"
+	"github.com/silthus/go-selfupdate/selfupdate"
 )
 
 var version, genDir string
@@ -25,7 +25,7 @@ func printUsage() {
 }
 
 func createBuildDir() {
-	os.MkdirAll(genDir, 0755)
+	_ = os.MkdirAll(genDir, 0755)
 }
 
 func ParseRsaPrivateKeyFromPemStr(privPEM []byte) (*rsa.PrivateKey, error) {

@@ -9,7 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 
-	"github.com/segfault16/go-selfupdate/selfupdate"
+	"github.com/silthus/go-selfupdate/selfupdate"
 )
 
 var version string

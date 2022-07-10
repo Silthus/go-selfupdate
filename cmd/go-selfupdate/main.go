@@ -16,6 +16,7 @@ import (
 )
 
 var version, genDir string
+var keyFile string
 
 func printUsage() {
 	fmt.Println("")
@@ -43,8 +44,8 @@ func ParseRsaPrivateKeyFromPemStr(privPEM []byte) (*rsa.PrivateKey, error) {
 }
 
 func main() {
-	outputDirFlag := flag.String("o", "public", "Output directory for writing updates")
-	keyFileFlag := flag.String("k", "", "Private key to use for signing the binary")
+	flag.StringVar(&genDir, "o", "public", "Output directory for writing updates")
+	flag.StringVar(&keyFile, "k", "", "Private key to use for signing the binary")
 
 	var defaultPlatform string
 	goos := os.Getenv("GOOS")
@@ -67,10 +68,9 @@ func main() {
 	platform := *platformFlag
 	appPath := flag.Arg(0)
 	version = flag.Arg(1)
-	genDir = *outputDirFlag
 	var pk *rsa.PrivateKey
-	if keyFileFlag != nil {
-		content, err := ioutil.ReadFile(*keyFileFlag)
+	if keyFile != "" {
+		content, err := ioutil.ReadFile(keyFile)
 		if err != nil {
 			panic(err)
 		}
